@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import Chat from "./Chat";
+import ChatRoom from "./ChatRoom";
 import io from "socket.io-client";
 
 const socket = io("http://localhost:5000");
