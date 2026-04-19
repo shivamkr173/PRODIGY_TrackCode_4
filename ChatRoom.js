@@ -1,53 +1,51 @@
-import React, { useEffect, useState } from 'react';
-import socket from './socket';
+import React, { useState, useEffect } from "react";
 
-function ChatRoom({ user }) {
-  const [message, setMessage] = useState('');
-  const [toUser, setToUser] = useState('');
-  const [messages, setMessages] = useState([]);
+function Chat({ socket, username, room }) {
+  const [message, setMessage] = useState("");
+  const [messageList, setMessageList] = useState([]);
+
+  const sendMessage = async () => {
+    if (message !== "") {
+      const messageData = {
+        room: room,
+        author: username,
+        message: message,
+        time: new Date().toLocaleTimeString(),
+      };
+
+      await socket.emit("send_message", messageData);
+      setMessageList((list) => [...list, messageData]);
+      setMessage("");
+    }
+  };
 
   useEffect(() => {
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'MESSAGE') {
-        setMessages((prev) => [...prev, `${data.from}: ${data.content}`]);
-      }
-    };
-  }, []);
-
-  const sendMessage = () => {
-    socket.send(JSON.stringify({
-      type: 'MESSAGE',
-      from: user,
-      to: toUser,
-      content: message,
-    }));
-    setMessages((prev) => [...prev, `Me: ${message}`]);
-    setMessage('');
-  };
+    socket.on("receive_message", (data) => {
+      setMessageList((list) => [...list, data]);
+    });
+  }, [socket]);
 
   return (
     <div>
-      <h2>Welcome, {user}</h2>
-      <input
-        type="text"
-        placeholder="To User"
-        onChange={(e) => setToUser(e.target.value)}
-      />
+      <h2>Room: {room}</h2>
+
       <div>
-        {messages.map((m, i) => (
-          <p key={i}>{m}</p>
+        {messageList.map((msg, index) => (
+          <p key={index}>
+            <strong>{msg.author}</strong>: {msg.message}
+          </p>
         ))}
       </div>
+
       <input
-        type="text"
-        placeholder="Your message..."
+        placeholder="Type message..."
         value={message}
         onChange={(e) => setMessage(e.target.value)}
       />
+
       <button onClick={sendMessage}>Send</button>
     </div>
   );
 }
 
-export default ChatRoom;
+export default Chat;
