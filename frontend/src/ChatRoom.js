@@ -2,21 +2,21 @@ import React, { useState, useEffect } from "react";
 import "./Chat.css";
 
 function Chat({ socket, username, room }) {
-  const [message, setMessage] = useState("");
+  const [currentMessage, setCurrentMessage] = useState("");
   const [messageList, setMessageList] = useState([]);
 
   const sendMessage = async () => {
-    if (message !== "") {
+    if (currentMessage !== "") {
       const messageData = {
         room: room,
         author: username,
-        message: message,
+        message: currentMessage,
         time: new Date().toLocaleTimeString(),
       };
 
       await socket.emit("send_message", messageData);
       setMessageList((list) => [...list, messageData]);
-      setMessage("");
+      setCurrentMessage("");
     }
   };
 
@@ -27,24 +27,49 @@ function Chat({ socket, username, room }) {
   }, [socket]);
 
   return (
-    <div>
-      <h2>Room: {room}</h2>
+    <div className="chat-window">
 
-      <div>
-        {messageList.map((msg, index) => (
-          <p key={index}>
-            <strong>{msg.author}</strong>: {msg.message}
-          </p>
-        ))}
+      <div className="chat-header">
+        <p>Room: {room}</p>
       </div>
 
-      <input
-        placeholder="Type message..."
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-      />
+      <div className="chat-body">
+        {messageList.map((messageContent, index) => {
+          return (
+            <div
+              key={index}
+              className="message"
+              id={username === messageContent.author ? "you" : "other"}
+            >
+              <div className="message-content">
+                <p>{messageContent.message}</p>
+              </div>
 
-      <button onClick={sendMessage}>Send</button>
+              <div className="message-meta">
+                <span>{messageContent.author}</span>
+                <span>{messageContent.time}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="chat-footer">
+        <input
+          type="text"
+          value={currentMessage}
+          placeholder="Type message..."
+          onChange={(e) => setCurrentMessage(e.target.value)}
+          onKeyPress={(event) => {
+            if (event.key === "Enter") {
+              sendMessage();
+            }
+          }}
+        />
+
+        <button onClick={sendMessage}>➤</button>
+      </div>
+
     </div>
   );
 }
