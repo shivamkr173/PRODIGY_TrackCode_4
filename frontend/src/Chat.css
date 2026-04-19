@@ -3,11 +3,15 @@
 .chat-window{
   width:420px;
   height:520px;
+
+  margin:auto;
+
   background:white;
   border-radius:12px;
   display:flex;
   flex-direction:column;
   overflow:hidden;
+
   box-shadow:0 10px 30px rgba(0,0,0,0.2);
 }
 
