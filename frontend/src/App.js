@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import ChatRoom from "./ChatRoom";
 import io from "socket.io-client";
 
-const socket = io("http://localhost:5000");
+const socket = io("https://prodigy-trackcode-4.onrender.com");
 
 function App() {
   const [username, setUsername] = useState("");
