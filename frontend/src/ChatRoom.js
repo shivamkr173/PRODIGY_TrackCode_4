@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import "./Chat.css";
 
 function Chat({ socket, username, room }) {
   const [message, setMessage] = useState("");
