@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import ChatRoom from "./ChatRoom";
 import io from "socket.io-client";
+import "./App.css";
 
 const socket = io("https://prodigy-trackcode-4.onrender.com");
 
