@@ -1,63 +1,19 @@
-/* Full page background */
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap');
 
-body{
-  margin:0;
-  padding:0;
-  font-family: "Segoe UI", sans-serif;
-
-  height:100vh;
-
-  display:flex;
-  justify-content:center;
-  align-items:center;
-
-  background: linear-gradient(135deg,#667eea,#764ba2);
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-/* Center container */
-
-.joinContainer {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100vh;
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
 }
 
-.joinCard {
-  background: white;
-  padding: 40px;
-  border-radius: 12px;
-  width: 320px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-  text-align: center;
-}
-
-.joinCard h2{
-  margin-bottom:20px;
-}
-
-.joinCard input{
-  width:100%;
-  padding:12px;
-  margin:10px 0;
-  border-radius:6px;
-  border:1px solid #ddd;
-  outline:none;
-}
-
-.joinCard button{
-  width:100%;
-  padding:12px;
-  margin-top:10px;
-  background:#667eea;
-  color:white;
-  border:none;
-  border-radius:6px;
-  cursor:pointer;
-  font-weight:bold;
-}
-
-.joinCard button:hover{
-  background:#5563d6;
+body {
+  background: #0a0c12;
+  font-family: 'DM Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
