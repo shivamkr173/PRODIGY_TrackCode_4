@@ -3,14 +3,21 @@ class SocketManager {
     this.url = url;
     this.handlers = {};
     this.queue = [];
+    this._rejoinPayloads = []; // re-sent on every reconnect
+    this._connected = false;
     this._connect();
   }
 
   _connect() {
-    this.ws = new WebSocket(this.url);
+    try { this.ws = new WebSocket(this.url); } catch(e) {
+      setTimeout(() => this._connect(), 3000); return;
+    }
 
     this.ws.onopen = () => {
-      // Flush any queued messages
+      this._connected = true;
+      // Re-send join/login payloads first (handles Render spin-down)
+      this._rejoinPayloads.forEach(p => this.ws.send(JSON.stringify(p)));
+      // Then flush queued messages
       this.queue.forEach(msg => this.ws.send(msg));
       this.queue = [];
       this._trigger('_connected', {});
@@ -24,16 +31,28 @@ class SocketManager {
     };
 
     this.ws.onclose = () => {
+      this._connected = false;
       this._trigger('_disconnected', {});
-      // Auto-reconnect after 3 seconds
       setTimeout(() => this._connect(), 3000);
     };
 
-    this.ws.onerror = () => this.ws.close();
+    this.ws.onerror = () => {
+      this._connected = false;
+      try { this.ws.close(); } catch {}
+    };
   }
 
   _trigger(type, data) {
     (this.handlers[type] || []).forEach(h => h(data));
+  }
+
+  // Register payloads to auto-resend on every reconnect (LOGIN, JOIN)
+  setRejoinPayloads(payloads) {
+    this._rejoinPayloads = payloads;
+  }
+
+  clearRejoinPayloads() {
+    this._rejoinPayloads = [];
   }
 
   send(data) {
@@ -41,7 +60,6 @@ class SocketManager {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(msg);
     } else {
-      // Queue it — will flush once connected
       this.queue.push(msg);
     }
   }
@@ -49,7 +67,6 @@ class SocketManager {
   on(type, handler) {
     if (!this.handlers[type]) this.handlers[type] = [];
     this.handlers[type].push(handler);
-    // Returns unsubscribe function
     return () => this.off(type, handler);
   }
 
@@ -60,11 +77,6 @@ class SocketManager {
   }
 }
 
-// ─────────────────────────────────────────────
-// Change RENDER_URL to your actual Render service URL
-// Get it from: Render dashboard → your service → the URL shown at the top
-// Example: https://krcc-backend.onrender.com  →  wss://krcc-backend.onrender.com
-// ─────────────────────────────────────────────
 const RENDER_URL = 'wss://prodigy-trackcode-4.onrender.com';
 
 const WS_URL = process.env.NODE_ENV === 'production'
