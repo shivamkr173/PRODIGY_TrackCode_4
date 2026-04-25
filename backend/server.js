@@ -1,7 +1,10 @@
 const http = require('http');
 const WebSocket = require('ws');
 
-const server = http.createServer();
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("KRCC Chat Server is running ✅");
+});
 const wss = new WebSocket.Server({ server });
 
 // rooms: Map<roomName, Set<{ws, username}>>
