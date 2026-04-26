@@ -70,27 +70,60 @@ function EmojiPicker({ onPick }) {
 }
 
 // ─────────────────────────────────────────────
-// WebRTC Hook
+// WebRTC Hook  — with TURN + ICE buffering
 // ─────────────────────────────────────────────
-const STUN = { iceServers: [{ urls:'stun:stun.l.google.com:19302' }] };
+
+// Free TURN servers (OpenRelay) — needed for cross-network calls
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    {
+      urls:       'turn:openrelay.metered.ca:80',
+      username:   'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls:       'turn:openrelay.metered.ca:443',
+      username:   'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls:       'turn:openrelay.metered.ca:443?transport=tcp',
+      username:   'openrelayproject',
+      credential: 'openrelayproject',
+    },
+  ],
+  iceCandidatePoolSize: 10,
+};
 
 function useWebRTC(username, room) {
-  const pc = useRef(null);
-  const localStream = useRef(null);
-  const pendingOffer = useRef(null);
-  const timerRef = useRef(null);
-  const [callState, setCallState] = useState({ status:'idle' });
-  const [localVideoStream, setLocalVideoStream] = useState(null);
-  const [remoteStream, setRemoteStream] = useState(null);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isCamOff, setIsCamOff] = useState(false);
-  const [callTimer, setCallTimer] = useState(0);
+  const pc             = useRef(null);
+  const localStream    = useRef(null);
+  const pendingOffer   = useRef(null);
+  const iceBuf         = useRef([]);   // buffer ICE candidates until remoteDesc is set
+  const remoteSet      = useRef(false);
+  const timerRef       = useRef(null);
+  const targetRef      = useRef(null);
+
+  const [callState,       setCallState]       = useState({ status:'idle' });
+  const [localVideoStream,setLocalVideoStream] = useState(null);
+  const [remoteStream,    setRemoteStream]     = useState(null);
+  const [isMuted,         setIsMuted]          = useState(false);
+  const [isCamOff,        setIsCamOff]         = useState(false);
+  const [callTimer,       setCallTimer]        = useState(0);
 
   const cleanup = useCallback(() => {
     clearInterval(timerRef.current);
     setCallTimer(0);
-    if (localStream.current) { localStream.current.getTracks().forEach(t => t.stop()); localStream.current = null; }
+    if (localStream.current) {
+      localStream.current.getTracks().forEach(t => t.stop());
+      localStream.current = null;
+    }
     if (pc.current) { pc.current.close(); pc.current = null; }
+    iceBuf.current   = [];
+    remoteSet.current = false;
+    targetRef.current = null;
     setLocalVideoStream(null);
     setRemoteStream(null);
     setIsMuted(false);
@@ -99,45 +132,105 @@ function useWebRTC(username, room) {
     pendingOffer.current = null;
   }, []);
 
+  // Flush buffered ICE candidates after remote description is set
+  const flushIce = useCallback(async () => {
+    if (!pc.current) return;
+    for (const c of iceBuf.current) {
+      try { await pc.current.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+    }
+    iceBuf.current = [];
+  }, []);
+
   const createPC = useCallback((target) => {
-    const conn = new RTCPeerConnection(STUN);
-    conn.onicecandidate = (e) => { if (e.candidate) socket.send({ type:'ICE_CANDIDATE', target, candidate:e.candidate, room }); };
-    conn.ontrack = (e) => setRemoteStream(e.streams[0]);
-    conn.onconnectionstatechange = () => { if (['failed','disconnected','closed'].includes(conn.connectionState)) cleanup(); };
+    if (pc.current) { pc.current.close(); }
+    const conn = new RTCPeerConnection(ICE_CONFIG);
+
+    conn.onicecandidate = (e) => {
+      if (e.candidate) {
+        socket.send({ type:'ICE_CANDIDATE', target, candidate: e.candidate.toJSON(), room });
+      }
+    };
+
+    // Build remote stream from incoming tracks
+    const remoteMediaStream = new MediaStream();
+    conn.ontrack = (e) => {
+      e.streams[0].getTracks().forEach(t => remoteMediaStream.addTrack(t));
+      setRemoteStream(remoteMediaStream);
+    };
+
+    conn.onconnectionstatechange = () => {
+      console.log('WebRTC state:', conn.connectionState);
+      if (['failed','disconnected'].includes(conn.connectionState)) {
+        cleanup();
+      }
+    };
+
+    conn.onicegatheringstatechange = () => {
+      console.log('ICE gathering:', conn.iceGatheringState);
+    };
+
     pc.current = conn;
     return conn;
   }, [cleanup, room]);
 
   const startCall = useCallback(async (target, callType) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio:true, video:callType==='video' });
+      targetRef.current = target;
+      const constraints = {
+        audio: { echoCancellation:true, noiseSuppression:true, sampleRate:48000 },
+        video: callType === 'video' ? { width:640, height:480, frameRate:24 } : false,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       localStream.current = stream;
       setLocalVideoStream(stream);
+
       const conn = createPC(target);
       stream.getTracks().forEach(t => conn.addTrack(t, stream));
-      const offer = await conn.createOffer();
+
+      const offer = await conn.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo: callType==='video' });
       await conn.setLocalDescription(offer);
-      socket.send({ type:'CALL_OFFER', target, offer, callType, room });
+
+      socket.send({ type:'CALL_OFFER', target, offer: conn.localDescription.toJSON(), callType, room });
       setCallState({ status:'calling', type:callType, target });
-    } catch (err) { alert('Mic/camera error: '+err.message); cleanup(); }
+    } catch (err) {
+      console.error('startCall error', err);
+      alert('Cannot access mic/camera: ' + err.message);
+      cleanup();
+    }
   }, [createPC, cleanup, room]);
 
   const acceptCall = useCallback(async () => {
     const { from, offer, callType } = pendingOffer.current;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio:true, video:callType==='video' });
+      targetRef.current = from;
+      const constraints = {
+        audio: { echoCancellation:true, noiseSuppression:true, sampleRate:48000 },
+        video: callType === 'video' ? { width:640, height:480, frameRate:24 } : false,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       localStream.current = stream;
       setLocalVideoStream(stream);
+
       const conn = createPC(from);
       stream.getTracks().forEach(t => conn.addTrack(t, stream));
-      await conn.setRemoteDescription(offer);
+
+      await conn.setRemoteDescription(new RTCSessionDescription(offer));
+      remoteSet.current = true;
+      await flushIce(); // apply any buffered candidates
+
       const answer = await conn.createAnswer();
       await conn.setLocalDescription(answer);
-      socket.send({ type:'CALL_ANSWER', target:from, answer, room });
+
+      socket.send({ type:'CALL_ANSWER', target:from, answer: conn.localDescription.toJSON(), room });
       setCallState({ status:'active', type:callType, target:from });
       timerRef.current = setInterval(() => setCallTimer(t => t+1), 1000);
-    } catch (err) { alert('Mic/camera error: '+err.message); rejectCall(); }
-  }, [createPC, room]);
+    } catch (err) {
+      console.error('acceptCall error', err);
+      alert('Cannot access mic/camera: ' + err.message);
+      if (pendingOffer.current) socket.send({ type:'CALL_REJECT', target:pendingOffer.current.from, room });
+      cleanup();
+    }
+  }, [createPC, flushIce, cleanup, room]);
 
   const rejectCall = useCallback(() => {
     if (pendingOffer.current) socket.send({ type:'CALL_REJECT', target:pendingOffer.current.from, room });
@@ -145,20 +238,22 @@ function useWebRTC(username, room) {
   }, [cleanup, room]);
 
   const endCall = useCallback(() => {
-    if (callState.target) socket.send({ type:'CALL_END', target:callState.target, room });
+    const t = targetRef.current || (callState && callState.target);
+    if (t) socket.send({ type:'CALL_END', target:t, room });
     cleanup();
-  }, [callState.target, cleanup, room]);
+  }, [callState, cleanup, room]);
 
-  const toggleMute = () => {
+  const toggleMute = useCallback(() => {
     if (!localStream.current) return;
     localStream.current.getAudioTracks().forEach(t => { t.enabled = !t.enabled; });
     setIsMuted(m => !m);
-  };
-  const toggleCam = () => {
+  }, []);
+
+  const toggleCam = useCallback(() => {
     if (!localStream.current) return;
     localStream.current.getVideoTracks().forEach(t => { t.enabled = !t.enabled; });
     setIsCamOff(c => !c);
-  };
+  }, []);
 
   useEffect(() => {
     const offs = [
@@ -166,21 +261,33 @@ function useWebRTC(username, room) {
         pendingOffer.current = { from:data.from, offer:data.offer, callType:data.callType };
         setCallState({ status:'incoming', type:data.callType, from:data.from });
       }),
+
       socket.on('CALL_ANSWER', async (data) => {
-        if (pc.current) {
-          await pc.current.setRemoteDescription(data.answer);
+        if (!pc.current) return;
+        try {
+          await pc.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+          remoteSet.current = true;
+          await flushIce();
           setCallState(prev => ({ ...prev, status:'active' }));
           timerRef.current = setInterval(() => setCallTimer(t => t+1), 1000);
+        } catch(e) { console.error('setRemoteDescription error', e); }
+      }),
+
+      socket.on('ICE_CANDIDATE', async (data) => {
+        if (!data.candidate) return;
+        if (pc.current && remoteSet.current) {
+          try { await pc.current.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch {}
+        } else {
+          // Buffer it — remote description not set yet
+          iceBuf.current.push(data.candidate);
         }
       }),
-      socket.on('ICE_CANDIDATE', async (data) => {
-        if (pc.current && data.candidate) try { await pc.current.addIceCandidate(data.candidate); } catch {}
-      }),
-      socket.on('CALL_REJECT', () => { alert('Call declined.'); cleanup(); }),
-      socket.on('CALL_END', () => cleanup()),
+
+      socket.on('CALL_REJECT', () => { alert('Call was declined.'); cleanup(); }),
+      socket.on('CALL_END',    () => cleanup()),
     ];
     return () => offs.forEach(o => o());
-  }, [cleanup]);
+  }, [cleanup, flushIce]);
 
   return { callState, localVideoStream, remoteStream, isMuted, isCamOff, callTimer, startCall, acceptCall, rejectCall, endCall, toggleMute, toggleCam };
 }
