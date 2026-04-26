@@ -298,36 +298,54 @@ function useWebRTC(username, room) {
 function CallModal({ callState, localVideoStream, remoteStream, isMuted, isCamOff, callTimer, onAccept, onReject, onEnd, onToggleMute, onToggleCam }) {
   const localRef  = useRef(null);
   const remoteRef = useRef(null);
-  const audioRef  = useRef(null); // ← hidden audio element for voice calls
+  const audioRef  = useRef(null);
 
-  // Attach local video stream
-  useEffect(() => { if (localRef.current  && localVideoStream) localRef.current.srcObject  = localVideoStream; }, [localVideoStream]);
+  // Attach local stream whenever it changes OR element mounts
+  useEffect(() => {
+    if (localRef.current && localVideoStream) {
+      localRef.current.srcObject = localVideoStream;
+      localRef.current.play().catch(() => {});
+    }
+  }, [localVideoStream, callState.status]); // re-run when status changes (element now visible)
 
-  // Attach remote stream — video OR audio
+  // Attach remote stream whenever it changes OR element mounts
   useEffect(() => {
     if (!remoteStream) return;
-    if (remoteRef.current) remoteRef.current.srcObject = remoteStream;   // video call
-    if (audioRef.current)  audioRef.current.srcObject  = remoteStream;   // voice call
-  }, [remoteStream]);
+    // Always attach to audio (voice calls)
+    if (audioRef.current) {
+      audioRef.current.srcObject = remoteStream;
+      audioRef.current.play().catch(() => {});
+    }
+    // Always attach to video element too (video calls)
+    if (remoteRef.current) {
+      remoteRef.current.srcObject = remoteStream;
+      remoteRef.current.play().catch(() => {});
+    }
+  }, [remoteStream, callState.status]); // re-run when status changes
 
   if (callState.status === 'idle') return null;
   const isVideo  = callState.type === 'video';
   const isActive = callState.status === 'active';
+  const showVideo = isVideo && isActive;
 
   return (
     <div className="call-modal">
-      <div className={`call-inner ${isVideo && isActive ? 'video-mode' : ''}`}>
+      <div className={`call-inner ${showVideo ? 'video-mode' : ''}`}>
 
-        {/* Hidden audio element — ALWAYS present for voice calls */}
+        {/* Audio — always in DOM for voice calls */}
         <audio ref={audioRef} autoPlay playsInline style={{ display:'none' }} />
 
-        {isVideo && isActive && (
-          <div className="video-stage">
-            <video ref={remoteRef} autoPlay playsInline className="video-remote" />
-            <video ref={localRef}  autoPlay playsInline muted className="video-local" />
-          </div>
-        )}
-        {(!isVideo || !isActive) && (
+        {/* Video elements — ALWAYS in DOM so refs are valid when stream arrives.
+            Hidden when not in video call or not yet active */}
+        <div className="video-stage" style={{ display: showVideo ? 'block' : 'none' }}>
+          <video ref={remoteRef} autoPlay playsInline className="video-remote"
+            style={{ width:'100%', height:'100%', objectFit:'cover', background:'#000' }} />
+          <video ref={localRef}  autoPlay playsInline muted className="video-local"
+            style={{ display: localVideoStream ? 'block' : 'none' }} />
+        </div>
+
+        {/* Info panel — show when not in active video mode */}
+        {!showVideo && (
           <div className="call-info">
             <div className="call-avatar-ring">
               <Avatar name={callState.target || callState.from} size={72} />
@@ -337,13 +355,13 @@ function CallModal({ callState, localVideoStream, remoteStream, isMuted, isCamOf
             </div>
             <p className="call-name">{callState.target || callState.from}</p>
             <p className="call-status">
-              {callState.status === 'calling' && `Calling… ${isVideo ? '📹' : '📞'}`}
+              {callState.status === 'calling'  && `Calling… ${isVideo ? '📹' : '📞'}`}
               {callState.status === 'incoming' && `Incoming ${isVideo ? 'video' : 'voice'} call`}
               {callState.status === 'active'   && <span className="call-timer-text">{fmtDuration(callTimer)}</span>}
             </p>
           </div>
         )}
-        {isVideo && isActive && (
+        {showVideo && (
           <div className="call-overlay-info">
             <span className="call-timer-badge">{fmtDuration(callTimer)}</span>
           </div>
